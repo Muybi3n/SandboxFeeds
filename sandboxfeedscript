@@ -1,0 +1,158 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import sys
+import requests
+import os
+import json
+import bz2
+
+API_KEY = 'Your API_KEY goes here'
+HEADER = {'x-apikey': API_KEY}
+
+"""
+    Check Requirements
+    It will check and create the folder structure
+"""
+def check_folder(foldername):
+  if not os.path.exists(foldername):
+    os.mkdir(foldername)
+
+def check_req():
+  parent_dir = "./"
+  directory = "virustotal_sandbox_feed"
+  path = os.path.join(parent_dir, directory)
+  check_folder(directory)
+  parent_dir = parent_dir + directory
+  directories = ["json" , "evtx" , "html" , "pcap" , "memdump" , "raw_json_feeds" , "raw_bz2_feeds"]
+  for directory in directories:
+    path = os.path.join(parent_dir, directory)
+    check_folder(path)
+
+
+"""
+    GET_FEED FUNCTION
+    It will download the feed twice:
+    - One BZIP2 File
+    - One JSON File
+"""
+def get_feed(id):
+    print("Downloading sandbox/behavioural feeds...")
+    URL = "https://www.virustotal.com/api/v3/feeds/file-behaviours/"+id
+
+    get_file = requests.get(URL, headers=HEADER)
+    bz_file = "virustotal_sandbox_feed/raw_bz2_feeds/"+str(id)+"_file-behaviours_feed.bz2"
+    json_file = "virustotal_sandbox_feed/raw_json_feeds/"+str(id)+"_file-behaviours_feed.json"
+
+    with bz2.open(bz_file, 'wb') as bz_feed:
+        print("Exporting the feeds to "+bz_file+" file...")
+        bz_feed.write(get_file.content)
+        print("Exporting the feeds to "+json_file+" file...")
+        try:
+            decompress = bz2.decompress(get_file.content)
+        except:
+            return get_file.content, False
+        with open(json_file, 'wb') as json_feed:
+            json_feed.write(decompress)
+
+    return json_file, True
+
+
+"""
+  DOWNLOAD Sandbox Feed assets
+"""
+def download_file(url, filename):
+  get_file = requests.get(url, headers=HEADER)
+  open(str(filename), 'wb').write(get_file.content)
+  print('The file ' + filename + ' was download.')
+
+def download_items(behaviour, hash, behaviour_id):
+  """ Download the JSON file
+  """
+  json_report = "virustotal_sandbox_feed/json/" + hash
+  check_folder(json_report)
+  report_path = json_report + "/" + behaviour_id + ".json"
+  with open(report_path, 'w') as json_report:
+    json_object = json.dumps(behaviour, indent=4, sort_keys=True)
+    json_report.write(json_object)
+
+  """ Download the EVTX file
+  """
+  has_evtx = behaviour['attributes']['has_evtx']
+  if has_evtx:
+    report = "virustotal_sandbox_feed/evtx/" + hash
+    check_folder(report)
+    url = behaviour['context_attributes']['evtx']
+    filename = report + '/' + behaviour_id + '.evtx'
+    download_file(url, filename)
+
+  """ Download the HTML file
+  """
+  has_html_report = behaviour['attributes']['has_html_report']
+  if has_html_report:
+    report = "virustotal_sandbox_feed/html/" + hash
+    check_folder(report)
+    url = behaviour['context_attributes']['html_report']
+    filename = report + '/' + behaviour_id + '.html'
+    download_file(url, filename)
+
+  """ Download the MEMDUMP file
+  """
+  has_memdump = behaviour['attributes']['has_memdump']
+  if has_memdump:
+    report = "virustotal_sandbox_feed/memdump/" + hash
+    check_folder(report)
+    url = behaviour['context_attributes']['memdump']
+    filename = report + '/' + behaviour_id + '.memdump'
+    download_file(url, filename)
+
+  """ Download the PCAP file
+  """
+  has_pcap = behaviour['attributes']['has_pcap']
+  if has_pcap:
+    report = "virustotal_sandbox_feed/pcap/" + hash
+    check_folder(report)
+    url = behaviour['context_attributes']['pcap']
+    filename = report + '/' + behaviour_id + '.pcap'
+    download_file(url, filename)
+
+
+"""
+    PRINT_FEED FUNCTION
+    It will do a pretty print of the json files we just downloaded.
+"""
+def check_feed_list(feed_file):
+  with open(feed_file, 'r', encoding='utf-8') as feeds:
+    parsed_json = []
+    for feed in feeds.readlines():
+      f = json.loads(feed)
+      parsed_json.append(f)
+
+    for feed in parsed_json:
+      hash = feed["relationships"]["file"]["data"]["id"]
+      report_id = feed["id"]
+      download_items(feed, hash, report_id)
+
+
+"""
+    MAIN FUNCTION
+"""
+def main(id):
+  check_req()
+  feed_file,valid_request = get_feed(id)
+  if valid_request == True:
+    check_feed_list(feed_file)
+  else:
+    print("Something went wrong.")
+    print(feed_file)
+
+if __name__ == '__main__':
+  try:
+    id = sys.argv[1]
+    try:
+      main(id)
+    except:
+      print("\n ERROR! \n Something went wrong. Please: \n - Check the date format\n - Check the date is not older than 7 days\n - Check with support team you have the needed permissions.\n - Check you wrote the parameters in the right orfer: ./sandbox_feed.py YYYYMMDDhhmm\n")
+  except:
+    print("\n ERROR! \n Missing one of the arguments. \n Please provide them like in the example below: \n\n ./sandbox_feed.py YYYYMMDDhhmm\n")
+    print("e.g. ./feed_get.py 202001121010")
